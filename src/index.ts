@@ -12,11 +12,22 @@ type ExctractParams<Path> = Path extends `${infer Segment}/${infer Rest}`
   ? ExtractParam<Segment, ExctractParams<Rest>>
   : ExtractParam<Path, {}>;
 
+type ExtractQuery<QueryString> = QueryString extends `${infer Query}&${infer Rest}`
+  ? Record<Query, string | undefined> & ExtractQuery<Rest>
+  : QueryString extends `${infer Query}`
+  ? Record<Query, string | undefined>
+  : {};
+
+type ExtractQueries<Path> = Path extends `${infer _Pathname}?${infer QueryString}`
+  ? ExtractQuery<QueryString>
+  : {};
+
 export type RoutesConfig = Record<string, `/${string}`>;
 
 export type Route<K extends string, T extends string> = {
   name: K;
   params: ExctractParams<T>;
+  queries: ExtractQueries<T>;
   pathname: string;
 };
 
@@ -24,20 +35,22 @@ export type TRoutes<T extends RoutesConfig> = {
   [K in keyof T]: K extends string ? Route<K, T[K]> : never;
 }[keyof T];
 
+type RequireParams<P> = keyof P extends never ? false : true;
+
 export type TRouter<T extends RoutesConfig> = {
   url<K extends keyof T>(
     name: K,
-    params: K extends string ? Route<K, T[K]>["params"] : never,
+    params: K extends string ? (RequireParams<Route<K, T[K]>["params"]> extends true ? Route<K, T[K]>["params"] : Route<K, T[K]>["params"]) : never,
   ): string;
   push<K extends keyof T>(
     name: K,
-    params: K extends string ? Route<K, T[K]>["params"] : never,
-    query?: Record<string, string>,
+    params?: K extends string ? (RequireParams<Route<K, T[K]>["params"]> extends true ? Route<K, T[K]>["params"] : Route<K, T[K]>["params"]) : never,
+    query?: K extends string ? Partial<Route<K, T[K]>["queries"]> : Record<string, string>,
   ): void;
   replace<K extends keyof T>(
     name: K,
-    params: K extends string ? Route<K, T[K]>["params"] : never,
-    query?: Record<string, string>,
+    params?: K extends string ? (RequireParams<Route<K, T[K]>["params"]> extends true ? Route<K, T[K]>["params"] : Route<K, T[K]>["params"]) : never,
+    query?: K extends string ? Partial<Route<K, T[K]>["queries"]> : Record<string, string>,
   ): void;
   setQuery(key: string, value: string | undefined): void;
   listen(listener: (currentRoute: TRoutes<T> | undefined) => void): () => void;
@@ -68,12 +81,21 @@ export function createRouter<const T extends RoutesConfig>(
   }
 
   for (const route in config) {
+    // Strip query string from the path for route matching
+    const routePath = config[route].split('?')[0];
     // @ts-ignore
     routes.push({
       name: route,
-      path: new Path(base ? base + config[route] : config[route]),
+      path: new Path(base ? base + routePath : routePath),
       get params() {
         return this.path.test(history.location.pathname) || {};
+      },
+      get queries() {
+        const parsed = queryString.parse(history.location.search) as Record<
+          string,
+          string | undefined
+        >;
+        return parsed;
       },
       get pathname() {
         return history.location.pathname.substring(base?.length ?? 0);
@@ -122,20 +144,20 @@ export function createRouter<const T extends RoutesConfig>(
 
       return route.path.build(params);
     },
-    push(name, params, query = {}) {
+    push(name, params, query) {
       const route = getRoute(name);
 
       history.push({
         pathname: route.path.build(params),
-        search: queryString.stringify(query),
+        search: queryString.stringify(query || {}),
       });
     },
-    replace(name, params, query = {}) {
+    replace(name, params, query) {
       const route = getRoute(name);
 
       history.replace({
         pathname: route.path.build(params),
-        search: queryString.stringify(query),
+        search: queryString.stringify(query || {}),
       });
     },
     setQuery(key, value) {

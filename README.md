@@ -17,7 +17,7 @@ import { createRouter, TRoutes, TRouter } from 'typed-client-router'
 
 const router = createRouter({
     main: '/',
-    items: '/items',
+    items: '/items?page&sort',
     item: '/items/:id',
     creative: '/creative/*something'
 }, {
@@ -40,12 +40,19 @@ if (router.current.name === 'item') {
     router.current.params.id
 }
 
-if (router.current.name === 'creative') {
-    // Splat params holds the rest of the path
-    router.current.params.something    
+if (router.current.name === 'items') {
+    // Typed queries - automatically extracted from route definition
+    // Both page and sort are typed as string | undefined
+    router.current.queries.page
+    router.current.queries.sort
 }
 
-// Access queries
+if (router.current.name === 'creative') {
+    // Splat params holds the rest of the path
+    router.current.params.something
+}
+
+// Access all queries
 router.queries
 
 // Set query
@@ -60,26 +67,51 @@ const disposer = router.listen((currentRoute) => {
 })
 
 // Push new page
-router.push('main', {})
+router.push('main')
 // With typed params
 router.push('item', { id: '123' })
-// With queries
-router.push('item', { id: '123' }, { foo: 'bar' })
+// With typed queries (page and sort are type-checked for 'items' route)
+router.push('items', {}, { page: '1', sort: 'name' })
+// With partial queries (each query param is individually optional)
+router.push('items', {}, { page: '1' })
 
 // Replace page
 router.replace('item', { id: '456' })
-// Replace with query
-router.replace('item', { id: '456' }, { foo: 'bar' })
+// Replace with typed queries
+router.replace('items', {}, { page: '2', sort: 'date' })
 
 // Create a url string
 router.url('item', { id: '456' })
 
 // To extract the type for your router, define the routes
 // as a "const" type
-const routes = { main: '/' } as const
+const routes = { main: '/', items: '/items?page&sort' } as const
 
 type MyRoutes = TRoutes<typeof routes>
 type MyRouter = TRouter<typeof routes>
+```
+
+### Query Parameters
+
+Define query parameters directly in the route path using the `?` syntax:
+
+```ts
+const router = createRouter({
+    items: '/items?page&sort',
+    userPosts: '/users/:userId/posts?page&filter'
+} as const)
+
+// Query parameters are automatically typed as optional (string | undefined)
+if (router.current?.name === 'items') {
+    const page: string | undefined = router.current.queries.page
+    const sort: string | undefined = router.current.queries.sort
+}
+
+// When pushing, query parameters are type-checked
+router.push('items', {}, { page: '1', sort: 'asc' })
+
+// Routes without defined queries accept any string queries
+router.push('search', {}, { q: 'test', filter: 'latest' })
 ```
 
 ## Anchor tags
